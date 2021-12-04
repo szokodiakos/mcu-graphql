@@ -8,7 +8,15 @@ import {
   GraphQLSchema,
   GraphQLString,
 } from 'graphql'
-import { characters, movies, tvShows } from './db'
+import {
+  characters,
+  getCharactersForMovie,
+  getCharactersForTvShow,
+  getMoviesForCharacter,
+  getTvShowForCharacter,
+  movies,
+  tvShows,
+} from './db'
 
 const pictureFields = {
   title: { type: new GraphQLNonNull(GraphQLString) },
@@ -22,15 +30,15 @@ const characterFields = {
   alias: { type: GraphQLString },
 }
 
-const character = new GraphQLObjectType({
+const Character = new GraphQLObjectType({
   name: 'Character',
-  fields: characterFields,
+  fields: () => characterFields,
 })
 
 const rootPictureFields = {
   ...pictureFields,
   characters: {
-    type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(character))),
+    type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Character))),
   },
 }
 
@@ -50,9 +58,9 @@ const movieFields = {
   },
 }
 
-const episode = new GraphQLObjectType({
+const Episode = new GraphQLObjectType({
   name: 'Episode',
-  fields: {
+  fields: () => ({
     title: {
       type: GraphQLString,
     },
@@ -62,101 +70,133 @@ const episode = new GraphQLObjectType({
     releaseDate: {
       type: new GraphQLNonNull(DateScalar),
     },
-  },
+  }),
 })
 
-const season = new GraphQLObjectType({
+const Season = new GraphQLObjectType({
   name: 'Season',
-  fields: {
+  fields: () => ({
     seasonNumber: {
       type: new GraphQLNonNull(GraphQLInt),
     },
     episodes: {
-      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(episode))),
+      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Episode))),
     },
-  },
+  }),
 })
 
 const tvShowFields = {
   seasons: {
-    type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(season))),
+    type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Season))),
   },
 }
 
-const picture = new GraphQLInterfaceType({
+const Picture = new GraphQLInterfaceType({
   name: 'Picture',
-  fields: pictureFields,
+  fields: () => pictureFields,
+  resolveType: (picture) => {
+    if (picture.seasons) {
+      return 'TvShow'
+    }
+    return 'Movie'
+  },
 })
 
-const rootPicture = new GraphQLInterfaceType({
+const RootPicture = new GraphQLInterfaceType({
   name: 'RootPicture',
-  fields: rootPictureFields,
+  fields: () => rootPictureFields,
+  resolveType: (rootPicture) => {
+    if (rootPicture.seasons) {
+      return 'RootTvShow'
+    }
+    return 'RootMovie'
+  },
 })
 
-const rootCharacter = new GraphQLObjectType({
+const RootCharacter = new GraphQLObjectType({
   name: 'RootCharacter',
-  fields: {
+  fields: () => ({
     ...characterFields,
     pictures: {
-      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(picture))),
+      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Picture))),
     },
-  },
+  }),
 })
 
-const movie = new GraphQLObjectType({
+const Movie = new GraphQLObjectType({
   name: 'Movie',
-  interfaces: [picture],
-  fields: {
+  interfaces: () => [Picture],
+  fields: () => ({
     ...pictureFields,
     ...movieFields,
-  },
+  }),
 })
 
-const rootMovie = new GraphQLObjectType({
+const RootMovie = new GraphQLObjectType({
   name: 'RootMovie',
-  interfaces: [picture, rootPicture],
-  fields: {
+  interfaces: () => [Picture, RootPicture],
+  fields: () => ({
     ...rootPictureFields,
     ...movieFields,
-  },
+  }),
 })
 
-const tvShow = new GraphQLObjectType({
+const TvShow = new GraphQLObjectType({
   name: 'TvShow',
-  interfaces: [picture],
-  fields: {
+  interfaces: () => [Picture],
+  fields: () => ({
     ...pictureFields,
     ...tvShowFields,
-  },
+  }),
 })
 
-const rootTvShow = new GraphQLObjectType({
+const RootTvShow = new GraphQLObjectType({
   name: 'RootTvShow',
-  interfaces: [picture, rootPicture],
-  fields: {
+  interfaces: () => [Picture, RootPicture],
+  fields: () => ({
     ...rootPictureFields,
     ...tvShowFields,
-  },
+  }),
 })
 
-const rootQuery = new GraphQLObjectType({
+const RootQuery = new GraphQLObjectType({
   name: 'RootQuery',
-  fields: {
+  fields: () => ({
     characters: {
-      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(character))),
+      type: new GraphQLNonNull(
+        new GraphQLList(new GraphQLNonNull(RootCharacter))
+      ),
       resolve() {
-        return Object.values(characters)
+        return Object.values(characters).map((character) => ({
+          ...character,
+          pictures: [
+            ...getMoviesForCharacter(character),
+            ...getTvShowForCharacter(character),
+          ],
+        }))
       },
     },
     pictures: {
-      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(picture))),
+      type: new GraphQLNonNull(
+        new GraphQLList(new GraphQLNonNull(RootPicture))
+      ),
       resolve() {
-        return [...Object.values(movies), ...Object.values(tvShows)]
+        return [
+          ...Object.values(movies).map((movie) => ({
+            ...movie,
+            characters: getCharactersForMovie(movie),
+          })),
+          ...Object.values(tvShows).map((tvShow) => ({
+            ...tvShow,
+            characters: getCharactersForTvShow(tvShow),
+          })),
+        ]
       },
     },
-  },
+  }),
 })
 
 export const schema = new GraphQLSchema({
-  query: rootQuery,
+  query: RootQuery,
+  types: [RootMovie, RootTvShow, Movie, TvShow],
 })
