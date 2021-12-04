@@ -1,4 +1,7 @@
 module.exports = {
   parser: '@typescript-eslint/parser',
-  extends: ['plugin:prettier/recommended'],
+  extends: [
+    'plugin:@typescript-eslint/recommended',
+    'plugin:prettier/recommended',
+  ],
 }
