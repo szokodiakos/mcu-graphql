@@ -37,10 +37,10 @@ Pictures query:
       name,
       alias
     }
-    ... on RootMovie {
+    ... on Movie {
       releaseDate
     }
-    ... on RootTvShow {
+    ... on TvShow {
       seasons {
         seasonNumber
         episodes {

@@ -9,54 +9,24 @@ import {
   GraphQLString,
 } from 'graphql'
 import {
+  Character,
   characters,
   getCharactersForMovie,
   getCharactersForTvShow,
   getMoviesForCharacter,
   getTvShowForCharacter,
+  Movie,
   movies,
+  Picture,
+  TvShow,
   tvShows,
 } from './db'
 
-const pictureFields = {
-  title: { type: new GraphQLNonNull(GraphQLString) },
-  phase: { type: new GraphQLNonNull(GraphQLInt) },
-}
-
-const characterFields = {
-  name: {
-    type: new GraphQLNonNull(GraphQLString),
-  },
-  alias: { type: GraphQLString },
-}
-
-const Character = new GraphQLObjectType({
-  name: 'Character',
-  fields: () => characterFields,
-})
-
-const rootPictureFields = {
-  ...pictureFields,
-  characters: {
-    type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Character))),
-  },
-}
-
 const DateScalar = new GraphQLScalarType({
   name: 'Date',
-  serialize: (date: unknown) => {
-    return (date as Date).toJSON()
-  },
-  parseValue: (str: unknown) => {
-    return new Date(str as string)
-  },
+  serialize: (date: unknown) => (date as Date).toJSON(),
+  parseValue: (str: unknown) => new Date(str as string),
 })
-
-const movieFields = {
-  releaseDate: {
-    type: DateScalar,
-  },
-}
 
 const Episode = new GraphQLObjectType({
   name: 'Episode',
@@ -85,42 +55,35 @@ const Season = new GraphQLObjectType({
   }),
 })
 
-const tvShowFields = {
-  seasons: {
-    type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Season))),
+const Character = new GraphQLObjectType({
+  name: 'Character',
+  fields: () => ({
+    name: {
+      type: new GraphQLNonNull(GraphQLString),
+    },
+    alias: { type: GraphQLString },
+    pictures: {
+      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Picture))),
+      resolve: (source: Character) => [
+        ...getMoviesForCharacter(source),
+        ...getTvShowForCharacter(source),
+      ],
+    },
+  }),
+})
+
+const pictureFields = {
+  title: { type: new GraphQLNonNull(GraphQLString) },
+  phase: { type: new GraphQLNonNull(GraphQLInt) },
+  characters: {
+    type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Character))),
   },
 }
 
-const Picture = new GraphQLInterfaceType({
+const Picture: GraphQLInterfaceType = new GraphQLInterfaceType({
   name: 'Picture',
   fields: () => pictureFields,
-  resolveType: (picture) => {
-    if (picture.seasons) {
-      return 'TvShow'
-    }
-    return 'Movie'
-  },
-})
-
-const RootPicture = new GraphQLInterfaceType({
-  name: 'RootPicture',
-  fields: () => rootPictureFields,
-  resolveType: (rootPicture) => {
-    if (rootPicture.seasons) {
-      return 'RootTvShow'
-    }
-    return 'RootMovie'
-  },
-})
-
-const RootCharacter = new GraphQLObjectType({
-  name: 'RootCharacter',
-  fields: () => ({
-    ...characterFields,
-    pictures: {
-      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Picture))),
-    },
-  }),
+  resolveType: (picture) => (picture.seasons ? 'TvShow' : 'Movie'),
 })
 
 const Movie = new GraphQLObjectType({
@@ -128,16 +91,13 @@ const Movie = new GraphQLObjectType({
   interfaces: () => [Picture],
   fields: () => ({
     ...pictureFields,
-    ...movieFields,
-  }),
-})
-
-const RootMovie = new GraphQLObjectType({
-  name: 'RootMovie',
-  interfaces: () => [Picture, RootPicture],
-  fields: () => ({
-    ...rootPictureFields,
-    ...movieFields,
+    characters: {
+      ...pictureFields.characters,
+      resolve: (source: Movie) => getCharactersForMovie(source),
+    },
+    releaseDate: {
+      type: DateScalar,
+    },
   }),
 })
 
@@ -146,16 +106,13 @@ const TvShow = new GraphQLObjectType({
   interfaces: () => [Picture],
   fields: () => ({
     ...pictureFields,
-    ...tvShowFields,
-  }),
-})
-
-const RootTvShow = new GraphQLObjectType({
-  name: 'RootTvShow',
-  interfaces: () => [Picture, RootPicture],
-  fields: () => ({
-    ...rootPictureFields,
-    ...tvShowFields,
+    characters: {
+      ...pictureFields.characters,
+      resolve: (source: TvShow) => getCharactersForTvShow(source),
+    },
+    seasons: {
+      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Season))),
+    },
   }),
 })
 
@@ -163,40 +120,17 @@ const RootQuery = new GraphQLObjectType({
   name: 'RootQuery',
   fields: () => ({
     characters: {
-      type: new GraphQLNonNull(
-        new GraphQLList(new GraphQLNonNull(RootCharacter))
-      ),
-      resolve() {
-        return Object.values(characters).map((character) => ({
-          ...character,
-          pictures: [
-            ...getMoviesForCharacter(character),
-            ...getTvShowForCharacter(character),
-          ],
-        }))
-      },
+      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Character))),
+      resolve: () => Object.values(characters),
     },
     pictures: {
-      type: new GraphQLNonNull(
-        new GraphQLList(new GraphQLNonNull(RootPicture))
-      ),
-      resolve() {
-        return [
-          ...Object.values(movies).map((movie) => ({
-            ...movie,
-            characters: getCharactersForMovie(movie),
-          })),
-          ...Object.values(tvShows).map((tvShow) => ({
-            ...tvShow,
-            characters: getCharactersForTvShow(tvShow),
-          })),
-        ]
-      },
+      type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Picture))),
+      resolve: () => [...Object.values(movies), ...Object.values(tvShows)],
     },
   }),
 })
 
 export const schema = new GraphQLSchema({
   query: RootQuery,
-  types: [RootMovie, RootTvShow, Movie, TvShow],
+  types: [Movie, TvShow],
 })
